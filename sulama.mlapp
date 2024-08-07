@@ -1,0 +1,346 @@
+classdef sulama < matlab.apps.AppBase
+
+    % Properties that correspond to app components
+    properties (Access = public)
+        UIFigure                      matlab.ui.Figure
+        Saveexcel                     matlab.ui.control.Button
+        StopPlot                      matlab.ui.control.Button
+        HumidityRateGauge             matlab.ui.control.LinearGauge
+        HumidityRateGaugeLabel        matlab.ui.control.Label
+        Image                         matlab.ui.control.Image
+        SoilHumidityAppLabel          matlab.ui.control.Label
+        StyleDropDown                 matlab.ui.control.DropDown
+        StyleDropDownLabel            matlab.ui.control.Label
+        ColorDropDown                 matlab.ui.control.DropDown
+        ColorDropDownLabel            matlab.ui.control.Label
+        stopwatering                  matlab.ui.control.Button
+        waterit                       matlab.ui.control.Button
+        exit                          matlab.ui.control.Button
+        Savepng                       matlab.ui.control.Button
+        Plot                          matlab.ui.control.Button
+        ThresholdValueEditField       matlab.ui.control.NumericEditField
+        ThresholdValueEditFieldLabel  matlab.ui.control.Label
+        UIAxes                        matlab.ui.control.UIAxes
+    end
+
+  properties (Access = private)
+        a = arduino('COM7','Mega2560');
+        i_time;
+    end
+
+    % Callbacks that handle component events
+    methods (Access = private)
+
+        % Button pushed function: stopwatering
+        function stopwateringButtonPushed(app, event)
+            writeDigitalPin(app.a, 'D52', 0);
+        end
+
+        % Button pushed function: exit
+        function exitButtonPushed(app, event)
+            writeDigitalPin(app.a, 'D52', 0);
+            close(app.UIFigure)
+        end
+
+        % Button pushed function: Savepng
+        function SavepngButtonPushed(app, event)
+            [filename, path] = uiputfile('*.png', 'Save as .png');
+            
+            if isequal(filename, 0)
+                return;
+            end
+
+            exportgraphics(app.UIAxes, fullfile(path, filename));
+        end
+
+        % Button pushed function: waterit
+        function wateritButtonPushed(app, event)
+            writeDigitalPin(app.a, 'D52', 1);
+        end
+
+        % Button pushed function: Plot
+        function PlotButtonPushed(app, event)
+
+            interval = 10000;
+            x = 0;
+            th = app.ThresholdValueEditField.Value; 
+            app.i_time = 1;
+            xData = [];
+
+            while app.i_time < interval
+                v = readVoltage(app.a, 'A15');
+                Humidity = 100 - (v / 5) * 100;
+                app.HumidityRateGauge.Value = Humidity;
+                xData = [xData, Humidity];
+                switch app.ColorDropDown.Value
+                    case 'Green'
+                        Color = [0.4660 0.6740 0.1880];
+                    case 'Blue'
+                        Color = [0.3010 0.7450 0.9330];
+                    case 'Black'
+                        Color = [0 0 0];
+                    case 'Orange'
+                        Color = [0.8500 0.3250 0.0980];
+                end
+                switch app.StyleDropDown.Value
+                    case '--'
+                        Style = '--';
+                    case '-.'
+                        Style = '-.';
+                    case '-'
+                        Style = '-';
+                    case ':'
+                        Style = ':';
+                end
+                cla(app.UIAxes);
+                plot(app.UIAxes, (1:length(xData))/6, xData, 'Color', Color, 'LineStyle', Style);
+                ylim(app.UIAxes,[-3,103]);
+                line(app.UIAxes, [0, length(xData)/6], [th, th], 'Color', 'r', 'LineStyle', '--', 'LineWidth', 1);
+                grid(app.UIAxes, 'on');
+                app.i_time = app.i_time + 1;
+                drawnow;
+
+                if th > Humidity
+                    writeDigitalPin(app.a, 'D52', 1);
+
+                else
+                    writeDigitalPin(app.a, 'D52', 0);
+                end
+            end
+        end
+
+        % Button pushed function: StopPlot
+        function StopPlotButtonPushed(app, event)
+            app.i_time = 10000;
+        end
+
+        % Button pushed function: Saveexcel
+        function SaveexcelButtonPushed(app, event)
+            [filename, path] = uiputfile('*.xlsx', 'Save as Excel File');
+
+            if isequal(filename, 0)
+                return;
+            end
+            
+            xData = app.UIAxes.Children(end).XData;
+            yData = app.UIAxes.Children(end).YData;
+            dataTable = table(xData', yData', 'VariableNames', {'Time', 'Humidity'});
+
+            writetable(dataTable, fullfile(path, filename));
+        end
+    end
+
+    % Component initialization
+    methods (Access = private)
+
+        % Create UIFigure and components
+        function createComponents(app)
+
+            % Get the file path for locating images
+            pathToMLAPP = fileparts(mfilename('fullpath'));
+
+            % Create UIFigure and hide until all components are created
+            app.UIFigure = uifigure('Visible', 'off');
+            app.UIFigure.Color = [0.8824 0.9451 0.949];
+            app.UIFigure.Position = [93 93 900 666];
+            app.UIFigure.Name = 'MATLAB App';
+
+            % Create UIAxes
+            app.UIAxes = uiaxes(app.UIFigure);
+            title(app.UIAxes, 'Humidity Rate')
+            xlabel(app.UIAxes, 'Time')
+            ylabel(app.UIAxes, 'Humidity (%)')
+            zlabel(app.UIAxes, 'Z')
+            app.UIAxes.FontWeight = 'bold';
+            app.UIAxes.Color = [0.9412 0.9412 0.9412];
+            app.UIAxes.GridColor = [0 0 0];
+            app.UIAxes.XGrid = 'on';
+            app.UIAxes.YGrid = 'on';
+            app.UIAxes.YMinorGrid = 'on';
+            app.UIAxes.Position = [43 153 627 412];
+
+            % Create ThresholdValueEditFieldLabel
+            app.ThresholdValueEditFieldLabel = uilabel(app.UIFigure);
+            app.ThresholdValueEditFieldLabel.HorizontalAlignment = 'right';
+            app.ThresholdValueEditFieldLabel.FontName = 'Bahnschrift';
+            app.ThresholdValueEditFieldLabel.FontSize = 14;
+            app.ThresholdValueEditFieldLabel.FontWeight = 'bold';
+            app.ThresholdValueEditFieldLabel.Position = [732 294 106 22];
+            app.ThresholdValueEditFieldLabel.Text = 'Threshold Value';
+
+            % Create ThresholdValueEditField
+            app.ThresholdValueEditField = uieditfield(app.UIFigure, 'numeric');
+            app.ThresholdValueEditField.Limits = [0 100];
+            app.ThresholdValueEditField.HorizontalAlignment = 'center';
+            app.ThresholdValueEditField.FontWeight = 'bold';
+            app.ThresholdValueEditField.BackgroundColor = [0.9412 0.9412 0.9412];
+            app.ThresholdValueEditField.Position = [736 255 92 28];
+            app.ThresholdValueEditField.Value = 35;
+
+            % Create Plot
+            app.Plot = uibutton(app.UIFigure, 'push');
+            app.Plot.ButtonPushedFcn = createCallbackFcn(app, @PlotButtonPushed, true);
+            app.Plot.BackgroundColor = [0.8 0.9216 0.9608];
+            app.Plot.FontName = 'Bahnschrift';
+            app.Plot.FontSize = 14;
+            app.Plot.FontWeight = 'bold';
+            app.Plot.Position = [720 520 129 30];
+            app.Plot.Text = 'Plot';
+
+            % Create Savepng
+            app.Savepng = uibutton(app.UIFigure, 'push');
+            app.Savepng.ButtonPushedFcn = createCallbackFcn(app, @SavepngButtonPushed, true);
+            app.Savepng.BackgroundColor = [0.5765 0.8392 0.5529];
+            app.Savepng.FontName = 'Bahnschrift';
+            app.Savepng.FontSize = 14;
+            app.Savepng.FontWeight = 'bold';
+            app.Savepng.Position = [81 116 195 30];
+            app.Savepng.Text = 'Save as .png';
+
+            % Create exit
+            app.exit = uibutton(app.UIFigure, 'push');
+            app.exit.ButtonPushedFcn = createCallbackFcn(app, @exitButtonPushed, true);
+            app.exit.BackgroundColor = [0.8784 0.4824 0.4824];
+            app.exit.FontName = 'Bahnschrift';
+            app.exit.FontSize = 14;
+            app.exit.FontWeight = 'bold';
+            app.exit.Position = [81 30 195 30];
+            app.exit.Text = 'Exit';
+
+            % Create waterit
+            app.waterit = uibutton(app.UIFigure, 'push');
+            app.waterit.ButtonPushedFcn = createCallbackFcn(app, @wateritButtonPushed, true);
+            app.waterit.BackgroundColor = [0.8 0.9216 0.9608];
+            app.waterit.FontName = 'Bahnschrift';
+            app.waterit.FontSize = 14;
+            app.waterit.FontWeight = 'bold';
+            app.waterit.Position = [719 344 132 30];
+            app.waterit.Text = 'Water it';
+
+            % Create stopwatering
+            app.stopwatering = uibutton(app.UIFigure, 'push');
+            app.stopwatering.ButtonPushedFcn = createCallbackFcn(app, @stopwateringButtonPushed, true);
+            app.stopwatering.BackgroundColor = [0.8 0.9216 0.9608];
+            app.stopwatering.FontName = 'Bahnschrift';
+            app.stopwatering.FontSize = 14;
+            app.stopwatering.FontWeight = 'bold';
+            app.stopwatering.Position = [720 402 129 30];
+            app.stopwatering.Text = 'Stop watering';
+
+            % Create ColorDropDownLabel
+            app.ColorDropDownLabel = uilabel(app.UIFigure);
+            app.ColorDropDownLabel.HorizontalAlignment = 'right';
+            app.ColorDropDownLabel.FontName = 'Bahnschrift';
+            app.ColorDropDownLabel.FontSize = 14;
+            app.ColorDropDownLabel.FontWeight = 'bold';
+            app.ColorDropDownLabel.Position = [765 205 39 22];
+            app.ColorDropDownLabel.Text = 'Color';
+
+            % Create ColorDropDown
+            app.ColorDropDown = uidropdown(app.UIFigure);
+            app.ColorDropDown.Items = {'Green', 'Black', 'Blue', 'Orange'};
+            app.ColorDropDown.FontName = 'Bahnschrift';
+            app.ColorDropDown.FontSize = 14;
+            app.ColorDropDown.FontWeight = 'bold';
+            app.ColorDropDown.FontColor = [0.149 0.149 0.149];
+            app.ColorDropDown.BackgroundColor = [0.8 0.9216 0.9608];
+            app.ColorDropDown.Position = [721 174 127 22];
+            app.ColorDropDown.Value = 'Green';
+
+            % Create StyleDropDownLabel
+            app.StyleDropDownLabel = uilabel(app.UIFigure);
+            app.StyleDropDownLabel.HorizontalAlignment = 'right';
+            app.StyleDropDownLabel.FontName = 'Bahnschrift';
+            app.StyleDropDownLabel.FontSize = 14;
+            app.StyleDropDownLabel.FontWeight = 'bold';
+            app.StyleDropDownLabel.Position = [766 124 37 22];
+            app.StyleDropDownLabel.Text = 'Style';
+
+            % Create StyleDropDown
+            app.StyleDropDown = uidropdown(app.UIFigure);
+            app.StyleDropDown.Items = {'-', '--', '-.', ':'};
+            app.StyleDropDown.FontWeight = 'bold';
+            app.StyleDropDown.BackgroundColor = [0.8 0.9216 0.9608];
+            app.StyleDropDown.Position = [721 86 127 22];
+            app.StyleDropDown.Value = '-';
+
+            % Create SoilHumidityAppLabel
+            app.SoilHumidityAppLabel = uilabel(app.UIFigure);
+            app.SoilHumidityAppLabel.BackgroundColor = [0.8 0.9216 0.9608];
+            app.SoilHumidityAppLabel.HorizontalAlignment = 'center';
+            app.SoilHumidityAppLabel.FontName = 'Bahnschrift';
+            app.SoilHumidityAppLabel.FontSize = 36;
+            app.SoilHumidityAppLabel.FontWeight = 'bold';
+            app.SoilHumidityAppLabel.Position = [0 591 901 76];
+            app.SoilHumidityAppLabel.Text = '       Soil Humidity App';
+
+            % Create Image
+            app.Image = uiimage(app.UIFigure);
+            app.Image.Position = [254 597 73 64];
+            app.Image.ImageSource = fullfile(pathToMLAPP, '842940.png');
+
+            % Create HumidityRateGaugeLabel
+            app.HumidityRateGaugeLabel = uilabel(app.UIFigure);
+            app.HumidityRateGaugeLabel.HorizontalAlignment = 'center';
+            app.HumidityRateGaugeLabel.FontName = 'Bahnschrift';
+            app.HumidityRateGaugeLabel.FontSize = 14;
+            app.HumidityRateGaugeLabel.FontWeight = 'bold';
+            app.HumidityRateGaugeLabel.Position = [461 30 92 22];
+            app.HumidityRateGaugeLabel.Text = 'Humidity Rate';
+
+            % Create HumidityRateGauge
+            app.HumidityRateGauge = uigauge(app.UIFigure, 'linear');
+            app.HumidityRateGauge.MajorTicks = [0 10 20 30 40 50 60 70 80 90 100];
+            app.HumidityRateGauge.MajorTickLabels = {'0', '10', '20', '30', '40', '50', '60', '70', '80', '90', '100'};
+            app.HumidityRateGauge.Position = [326 67 361 41];
+
+            % Create StopPlot
+            app.StopPlot = uibutton(app.UIFigure, 'push');
+            app.StopPlot.ButtonPushedFcn = createCallbackFcn(app, @StopPlotButtonPushed, true);
+            app.StopPlot.BackgroundColor = [0.8 0.9216 0.9608];
+            app.StopPlot.FontName = 'Bahnschrift';
+            app.StopPlot.FontSize = 14;
+            app.StopPlot.FontWeight = 'bold';
+            app.StopPlot.Position = [720 461 129 30];
+            app.StopPlot.Text = 'Stop plot';
+
+            % Create Saveexcel
+            app.Saveexcel = uibutton(app.UIFigure, 'push');
+            app.Saveexcel.ButtonPushedFcn = createCallbackFcn(app, @SaveexcelButtonPushed, true);
+            app.Saveexcel.BackgroundColor = [0.5765 0.8392 0.5529];
+            app.Saveexcel.FontName = 'Bahnschrift';
+            app.Saveexcel.FontSize = 14;
+            app.Saveexcel.FontWeight = 'bold';
+            app.Saveexcel.Position = [81 73 195 30];
+            app.Saveexcel.Text = 'Save to excel';
+
+            % Show the figure after all components are created
+            app.UIFigure.Visible = 'on';
+        end
+    end
+
+    % App creation and deletion
+    methods (Access = public)
+
+        % Construct app
+        function app = sulama
+
+            % Create UIFigure and components
+            createComponents(app)
+
+            % Register the app with App Designer
+            registerApp(app, app.UIFigure)
+
+            if nargout == 0
+                clear app
+            end
+        end
+
+        % Code that executes before app deletion
+        function delete(app)
+
+            % Delete UIFigure when app is deleted
+            delete(app.UIFigure)
+        end
+    end
+end
